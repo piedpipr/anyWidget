@@ -1,0 +1,15 @@
+{
+    "name": "anyWidget",
+    "description": "Unlimited Custom Widgets for Gnome",
+    "uuid": "anyWidget@piedpipr.github.com",
+    "shell-version": [
+        "45",
+        "46",
+        "47",
+        "48",
+        "49"
+    ],
+    "version": 1,
+    "settings-schema": "org.gnome.shell.extensions.anywidget",
+    "url": "https://github.com/piedpipr/anyWidget"
+}

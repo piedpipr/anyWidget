@@ -1,0 +1,44 @@
+.any-widget-container {
+    background-color: rgba(30, 30, 30, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.any-widget-container:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.any-widget-label {
+    color: #ffffff;
+    font-size: 1.1em;
+    font-weight: bold;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Panel Menu Icons */
+.popup-menu-icon {
+    icon-size: 1.09em;
+}
+
+.popup-menu-item .popup-menu-icon {
+    margin-left: 6px;
+    margin-right: 6px;
+}
+
+/* V8 Resize Handle - Minimal */
+.any-widget-container .any-widget-resize-handle {
+    /* Opacity now handled by JS for better reliability */
+    transition-duration: 200ms;
+}
+
+/* Active resizing state - No background */
+.any-widget-resize-handle.active {
+    background-color: transparent !important;
+    opacity: 1 !important;
+}
+
+.any-widget-resize-handle:hover {
+    background-color: transparent;
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.anywidget" path="/org/gnome/shell/extensions/anyWidget/">
+    
+    <!-- Global Settings -->
+    <key name="widget-list" type="s">
+      <default>'[]'</default>
+      <summary>List of widgets</summary>
+      <description>JSON array containing configuration for all active widgets</description>
+    </key>
+  </schema>
+</schemalist>
