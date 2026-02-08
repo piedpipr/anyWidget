@@ -443,6 +443,30 @@ const AnyWidget = GObject.registerClass(
             }
 
             this.reloadContent();
+            this.updateContainer(config.always_on_top);
+        }
+
+        updateContainer(alwaysOnTop) {
+            const parent = this.get_parent();
+            if (!parent) return;
+
+            if (alwaysOnTop) {
+                if (parent === Main.layoutManager._backgroundGroup) {
+                    parent.remove_child(this);
+                    Main.layoutManager.addChrome(this, {
+                        affectsInputRegion: true,
+                        trackFullscreen: false
+                    });
+                } else {
+                    // Already in uiGroup/Chrome, just ensure on top
+                    parent.set_child_above_sibling(this, null);
+                }
+            } else {
+                if (parent !== Main.layoutManager._backgroundGroup) {
+                    Main.layoutManager.removeChrome(this);
+                    Main.layoutManager._backgroundGroup.add_child(this);
+                }
+            }
         }
 
         saveState() {
@@ -537,7 +561,17 @@ export default class AnyWidgetExtension extends Extension {
 
         this._widgetsChangedId = this.settings.connect('changed::widget-list', () => {
             if (this._internalUpdate) return;
-            this.refreshWidgets();
+
+            if (this._pendingRefreshId) {
+                GLib.source_remove(this._pendingRefreshId);
+                this._pendingRefreshId = 0;
+            }
+
+            this._pendingRefreshId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
+                this.refreshWidgets();
+                this._pendingRefreshId = 0;
+                return GLib.SOURCE_REMOVE;
+            });
         });
 
         this._indicator = new WidgetMenuButton(this);
@@ -549,6 +583,11 @@ export default class AnyWidgetExtension extends Extension {
     disable() {
         // Clear any active interactions
         InteractionState.clear();
+
+        if (this._pendingRefreshId) {
+            GLib.source_remove(this._pendingRefreshId);
+            this._pendingRefreshId = 0;
+        }
 
         if (this._widgetsChangedId) {
             this.settings.disconnect(this._widgetsChangedId);
@@ -599,10 +638,13 @@ export default class AnyWidgetExtension extends Extension {
             } else {
                 const widget = new AnyWidget(config, this);
 
-                Main.layoutManager.uiGroup.add_child(widget);
-
                 if (config.always_on_top) {
-                    widget.get_parent().set_child_above_sibling(widget, null);
+                    Main.layoutManager.addChrome(widget, {
+                        affectsInputRegion: true,
+                        trackFullscreen: false
+                    });
+                } else {
+                    Main.layoutManager._backgroundGroup.add_child(widget);
                 }
 
                 this._widgets.set(config.id, widget);
@@ -611,8 +653,8 @@ export default class AnyWidgetExtension extends Extension {
 
         for (const [id, widget] of this._widgets) {
             if (!activeIds.has(id)) {
-                if (Main.layoutManager.uiGroup.contains(widget)) {
-                    Main.layoutManager.uiGroup.remove_child(widget);
+                if (widget.get_parent()) {
+                    widget.get_parent().remove_child(widget);
                 }
                 widget.destroy();
                 this._widgets.delete(id);
