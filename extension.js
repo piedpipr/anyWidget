@@ -180,8 +180,8 @@ const ResizeHandle = GObject.registerClass(
                     this.add_style_class_name('active');
                     InteractionState.resetTimeout();  // Start safety timeout
 
-                    // Attach to stage for reliable event capture
-                    InteractionState.stageHandlerId = global.stage.connect('event', (stage, evt) => {
+                    // Attach to stage for reliable event capture using captured-event (catch release even if child consumes it)
+                    InteractionState.stageHandlerId = global.stage.connect('captured-event', (stage, evt) => {
                         return this._handleStageEvent(evt);
                     });
 
@@ -256,92 +256,32 @@ const AnyWidget = GObject.registerClass(
             });
             this.add_child(this._contentBox);
 
-            this.set_layout_manager(new Clutter.BinLayout());
+            // this.set_layout_manager(new Clutter.BinLayout()); // St.BoxLayout enforces its own layout
 
             // Start drag on press - ONLY if clicking on widget background, not child buttons
             this.connect('button-press-event', (actor, event) => {
                 if (this.config.click_through) return Clutter.EVENT_PROPAGATE;
+                if (event.get_button() !== 1 || InteractionState.mode) return Clutter.EVENT_PROPAGATE;
 
-                // Helper to check if an actor is an interactive element
-                const isInteractive = (actor) => {
-                    if (!actor) return false;
-
-                    // 1. Check GType name (catches StButton, StEntry, etc.)
-                    const typeName = actor.constructor?.$gtype?.name || '';
-                    if (typeName.includes('Button') ||
-                        typeName.includes('Entry') ||
-                        typeName.includes('Icon')) return true;
-
-                    // 2. Check style class (often used for custom buttons)
-                    const styleClass = actor.style_class || '';
-                    if (styleClass.includes('button')) return true;
-
-                    // 3. Check for specific signals (most reliable for custom widgets)
-                    if (actor.connect && actor.has_signal && actor.has_signal('clicked')) return true;
-
-                    // 4. Fallback: If it's reactive and NOT our structural containers, assume interactive
-                    // This is the key fix: assume any reactive child is meant to be clicked, not dragged
-                    if (actor.reactive && actor !== this && actor !== this._contentBox) return true;
-
-                    return false;
-                };
-
-                // Traverse up from source to find any interactive element
-                let source = event.get_source();
-                while (source && source !== this) {
-                    if (isInteractive(source)) {
-                        // Found a button or interactive element - don't start drag
-                        return Clutter.EVENT_PROPAGATE;
-                    }
-                    source = source.get_parent();
-                }
-
-                if (event.get_button() === 1 && !InteractionState.mode) {
-                    [InteractionState.startX, InteractionState.startY] = event.get_coords();
-                    InteractionState.initialX = this.x;
-                    InteractionState.initialY = this.y;
-                    InteractionState.activeWidget = this;
-                    InteractionState.mode = 'drag-pending';
-                    InteractionState.resetTimeout();
+                // Check if click was on an interactive element
+                const source = event.get_source();
+                if (this._isInteractiveElement(source)) {
+                    // Click was on a button/icon - don't start drag at all
                     return Clutter.EVENT_PROPAGATE;
                 }
-                return Clutter.EVENT_PROPAGATE;
-            });
 
-            // Monitor motion to detect drag threshold
-            this.connect('motion-event', (actor, event) => {
-                if (InteractionState.mode === 'drag-pending' && InteractionState.activeWidget === this) {
-                    let [currX, currY] = event.get_coords();
-                    let dx = currX - InteractionState.startX;
-                    let dy = currY - InteractionState.startY;
+                // Start tracking with stage-level handler immediately
+                [InteractionState.startX, InteractionState.startY] = event.get_coords();
+                InteractionState.initialX = this.x;
+                InteractionState.initialY = this.y;
+                InteractionState.activeWidget = this;
+                InteractionState.mode = 'drag-pending';
 
-                    const DRAG_THRESHOLD = 8;  // pixels to start drag
-                    if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
-                        // NOW we start dragging - attach to stage for reliable capture
-                        InteractionState.mode = 'drag';
-                        this.get_parent().set_child_above_sibling(this, null);
+                // Attach to STAGE immediately - this captures ALL events reliably
+                InteractionState.stageHandlerId = global.stage.connect('captured-event', (stage, evt) => {
+                    return this._handleUnifiedStageEvent(evt);
+                });
 
-                        InteractionState.stageHandlerId = global.stage.connect('event', (stage, evt) => {
-                            return this._handleStageEvent(evt);
-                        });
-
-                        // Move immediately
-                        this.set_position(
-                            InteractionState.initialX + dx,
-                            InteractionState.initialY + dy
-                        );
-                        return Clutter.EVENT_STOP;
-                    }
-                }
-                return Clutter.EVENT_PROPAGATE;
-            });
-
-            // Release while pending = it was a click, not a drag
-            this.connect('button-release-event', (actor, event) => {
-                if (InteractionState.mode === 'drag-pending' && InteractionState.activeWidget === this) {
-                    // Still pending = was just a click, clear state and let it propagate
-                    InteractionState.clear();
-                }
                 return Clutter.EVENT_PROPAGATE;
             });
 
@@ -358,28 +298,86 @@ const AnyWidget = GObject.registerClass(
             });
         }
 
-        _handleStageEvent(event) {
-            // Only handle when in active drag mode
-            if (InteractionState.mode !== 'drag' || InteractionState.activeWidget !== this) {
+        // Check if an actor (or any of its ancestors up to this widget) is interactive
+        _isInteractiveElement(source) {
+            let actor = source;
+            while (actor && actor !== this) {
+                // 1. Strong type checking
+                if (actor instanceof St.Button ||
+                    actor instanceof St.Entry ||
+                    (St.Icon && actor instanceof St.Icon) ||
+                    (Clutter.Text && actor instanceof Clutter.Text)) return true;
+
+                // 2. Check GType name
+                const typeName = actor.constructor?.$gtype?.name || '';
+                if (typeName.includes('Button') ||
+                    typeName.includes('Entry') ||
+                    typeName.includes('Icon')) return true;
+
+                // 3. Check style class
+                const styleClass = actor.style_class || '';
+                if (styleClass.includes('button')) return true;
+
+                // 4. Check clicked signal
+                if (actor.connect && actor.has_signal && actor.has_signal('clicked')) return true;
+
+                // 5. If reactive and not our containers, assume interactive
+                if (actor.reactive && actor !== this && actor !== this._contentBox) return true;
+
+                actor = actor.get_parent();
+            }
+            return false;
+        }
+
+        // Unified stage event handler - handles drag operations
+        _handleUnifiedStageEvent(event) {
+            if (!InteractionState.mode || InteractionState.activeWidget !== this) {
                 return Clutter.EVENT_PROPAGATE;
             }
 
             const type = event.type();
 
-            if (type === Clutter.EventType.MOTION) {
-                let [currX, currY] = event.get_coords();
-                InteractionState.resetTimeout();
-                this.set_position(
-                    InteractionState.initialX + (currX - InteractionState.startX),
-                    InteractionState.initialY + (currY - InteractionState.startY)
-                );
-                return Clutter.EVENT_STOP;
-            }
-            else if (type === Clutter.EventType.BUTTON_RELEASE) {
+            // Handle BUTTON_RELEASE - ONLY button 1 clears state
+            if (type === Clutter.EventType.BUTTON_RELEASE) {
+                // Only respond to the same button that started the drag (button 1)
+                if (event.get_button() !== 1) {
+                    return Clutter.EVENT_PROPAGATE;
+                }
+
+                // Finish drag - save position
                 this.x = Math.round(this.x);
                 this.y = Math.round(this.y);
                 this.saveState();
+
                 InteractionState.clear();
+                return Clutter.EVENT_PROPAGATE; // Let other handlers process if needed
+            }
+
+            // Handle MOTION - always update position during drag
+            if (type === Clutter.EventType.MOTION) {
+                let [currX, currY] = event.get_coords();
+                let dx = currX - InteractionState.startX;
+                let dy = currY - InteractionState.startY;
+
+                // Move widget to follow pointer
+                this.set_position(
+                    InteractionState.initialX + dx,
+                    InteractionState.initialY + dy
+                );
+
+                // Bring to front on first significant motion
+                if (InteractionState.mode === 'drag-pending') {
+                    const DRAG_THRESHOLD = 5;
+                    if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+                        InteractionState.mode = 'drag';
+                        const parent = this.get_parent();
+                        if (parent && parent.set_child_above_sibling) {
+                            parent.set_child_above_sibling(this, null);
+                        }
+                    }
+                }
+
+                // ALWAYS consume motion events to prevent any interference
                 return Clutter.EVENT_STOP;
             }
 
