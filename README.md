@@ -1,5 +1,6 @@
 # anyWidget
-A Gnome shell extension for unlimited custom widgets for your desktop 
+### Unlimited Custom Widgets for Gnome
+A Gnome shell extension for adding unlimited custom widgets to your desktop with ease
 
 
 ### Imagination is your limit
